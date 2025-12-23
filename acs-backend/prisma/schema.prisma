@@ -5,9 +5,9 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client"
+  provider     = "prisma-client"
   moduleFormat = "cjs"
-  output   = "../app/generated/prisma"
+  output       = "../app/generated/prisma"
 }
 
 datasource db {
@@ -20,9 +20,19 @@ enum Role {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  role      Role     @default(USER)
-  createdAt DateTime @default(now())
+  id         String      @id @default(cuid())
+  email      String      @unique
+  password   String
+  role       Role        @default(USER)
+  createdAt  DateTime    @default(now())
+  userTokens UserToken[]
+}
+
+model UserToken {
+  id           String   @id @default(cuid())
+  userId       String
+  email        String
+  refreshToken String
+  expiresAt    DateTime
+  user         User     @relation(fields: [userId], references: [id])
 }
