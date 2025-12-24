@@ -11,6 +11,8 @@ import { Role } from '../generated/prisma/enums';
 import { PrismaClientKnownRequestError } from '../generated/prisma/internal/prismaNamespace';
 import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from '../dtos/jwt.dto';
+import { RedisService } from '../redis/redis.service';
+import Redis from 'ioredis';
 
 async function hashPassword(password: string): Promise<string> {
   const saltRounds = 5;
@@ -20,7 +22,14 @@ async function hashPassword(password: string): Promise<string> {
 
 @Injectable()
 export class AuthService {
-  constructor(private jwtservice: JwtService) {}
+  private redis: Redis;
+
+  constructor(
+    private jwtservice: JwtService,
+    private redisService: RedisService,
+  ) {
+    this.redis = this.redisService.newClient('AuthService');
+  }
 
   async register_user(email: string, password: string) {
     const hashed: string = await hashPassword(password);
@@ -81,6 +90,8 @@ export class AuthService {
       { secret: process.env.JWT_SECRET_REFRESH, expiresIn: '7d' },
     );
 
+    
+    // TODO: Save refresh token to Redis
     await prisma.userToken.create({
       data: {
         userId: user.id,
