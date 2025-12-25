@@ -6,10 +6,13 @@ import {
   Res,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UserDTO } from '../dtos/user.dto';
 import type { Response } from 'express';
+import { TOKEN_CONST } from '../constants/token';
 
 @Controller('auth')
 export class AuthController {
@@ -26,28 +29,40 @@ export class AuthController {
     @Body() body: UserDTO,
     @Res({ passthrough: true }) res: Response,
   ) {
-    let tokens: { accessToken: string; refreshToken: string } = {
-      accessToken: '',
-      refreshToken: '',
-    };
-
-    await this.authService
+    this.authService
       .validate_user(body.email, body.password)
-      .then(async (r) => {
-        tokens = await this.authService.login_user(r);
+      .then(async (result) => {
+        this.authService
+          .login_user({
+            email: result.email,
+            id: result.id,
+          })
+          .then((tokens) => {
+            res.cookie(
+              'refresh',
+              { token: tokens.refresh.token, id: tokens.refresh.id },
+              {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'strict',
+                path: '/auth/refresh', // TODO: Configure Path
+                maxAge: TOKEN_CONST.REFRESH_TTL_SECONDS * 1000,
+              },
+            );
 
-        res.cookie('refresh-token', tokens.refreshToken, {
-          httpOnly: true,
-          secure: true,
-          sameSite: 'strict',
-          path: '/auth/refresh',
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
+            return {
+              message: 'Login Successful!',
+              accessToken: tokens.accessToken,
+            };
+          })
+          .catch((e: unknown) => {
+            console.log('Login Failed: ', e);
+            throw new InternalServerErrorException('Something went wrong!');
+          });
+      })
+      .catch((e: unknown) => {
+        console.log('Login Failed: ', e);
+        throw new UnauthorizedException('Login Failed!');
       });
-
-    return {
-      message: 'Login Successful!',
-      accessToken: tokens.accessToken,
-    };
   }
 }

@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotAcceptableException,
   NotFoundException,
   UnauthorizedException,
@@ -13,6 +14,7 @@ import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from '../dtos/jwt.dto';
 import { RedisService } from '../redis/redis.service';
 import Redis from 'ioredis';
+import { TOKEN_CONST } from '../constants/token';
 
 async function hashPassword(password: string): Promise<string> {
   const saltRounds = 5;
@@ -77,7 +79,7 @@ export class AuthService {
   async login_user(user: {
     email: string;
     id: string;
-  }): Promise<{ refreshToken: string; accessToken: string }> {
+  }): Promise<{ refresh: { token: string; id: string }; accessToken: string }> {
     const payload = user;
 
     const accessToken = this.jwtservice.sign(
@@ -90,21 +92,45 @@ export class AuthService {
       { secret: process.env.JWT_SECRET_REFRESH, expiresIn: '7d' },
     );
 
-    
-    // TODO: Save refresh token to Redis
-    await prisma.userToken.create({
-      data: {
-        userId: user.id,
-        email: user.email,
-        refreshToken: refreshToken,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      },
-    });
+    const hashedRefresh: string = await bcrypt.hash(refreshToken, 5);
 
-    return { accessToken, refreshToken };
+    const refreshExp: number = TOKEN_CONST.REFRESH_TTL_SECONDS;
+
+    try {
+      const result = await prisma.userToken.create({
+        data: {
+          userId: user.id,
+          refreshToken: hashedRefresh,
+          expiresAt: new Date(Date.now() + refreshExp * 1000),
+        },
+      });
+
+      const redisData: string = JSON.stringify({
+        refresh: { token: hashedRefresh, id: result.id },
+      });
+
+      this.redis.set(result.id, redisData, 'EX', refreshExp);
+
+      return { accessToken, refresh: { token: refreshToken, id: result.id } };
+    } catch (e) {
+      console.log('DB:ERROR -> ', e);
+      throw new InternalServerErrorException('Failed to save refreshToken!');
+    }
   }
 
-  validate_token(token: string, type: string): JwtPayload | undefined {
+  async logout_user(userId: string) {
+    await prisma.userToken.delete({
+      where: {
+        userId: userId,
+      },
+    });
+  }
+
+  async validate_token(
+    token: string,
+    type: string,
+    id: string,
+  ): Promise<JwtPayload | undefined> {
     if (type === 'access') {
       try {
         return this.jwtservice.verify<JwtPayload>(token, {
@@ -119,6 +145,7 @@ export class AuthService {
           secret: process.env.JWT_SECRET_REFRESH,
         });
       } catch (e) {
+        await prisma.userToken.delete({ where: { id: id } });
         throw new UnauthorizedException('Refresh Token is Invalid!', e);
       }
     }
