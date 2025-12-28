@@ -45,7 +45,7 @@ export class AuthController {
         {
           httpOnly: true,
           secure: true,
-          sameSite: 'strict',
+          sameSite: 'lax',
           maxAge: TOKEN_CONST.REFRESH_TTL_SECONDS * 1000,
           signed: true,
         },
@@ -63,10 +63,7 @@ export class AuthController {
 
   @Post('/sign-out')
   @HttpCode(HttpStatus.OK)
-  signout_user(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  signout_user(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const cookie = req.signedCookies['refresh'];
 
     if (cookie) {
