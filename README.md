@@ -1,1 +1,0 @@
-# Authentication Centered System (ACS)

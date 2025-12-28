@@ -6,12 +6,11 @@ import {
   Res,
   HttpCode,
   HttpStatus,
-  UnauthorizedException,
-  InternalServerErrorException,
+  Req,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UserDTO } from '../dtos/user.dto';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { TOKEN_CONST } from '../constants/token';
 
 @Controller('auth')
@@ -23,46 +22,57 @@ export class AuthController {
     await this.authService.register_user(body.email, body.password);
   }
 
-  @Post('/login')
+  @Post('/sign-in')
   @HttpCode(HttpStatus.OK)
-  async login(
+  async signIn(
     @Body() body: UserDTO,
     @Res({ passthrough: true }) res: Response,
   ) {
-    this.authService
-      .validate_user(body.email, body.password)
-      .then(async (result) => {
-        this.authService
-          .login_user({
-            email: result.email,
-            id: result.id,
-          })
-          .then((tokens) => {
-            res.cookie(
-              'refresh',
-              { token: tokens.refresh.token, id: tokens.refresh.id },
-              {
-                httpOnly: true,
-                secure: true,
-                sameSite: 'strict',
-                path: '/auth/refresh', // TODO: Configure Path
-                maxAge: TOKEN_CONST.REFRESH_TTL_SECONDS * 1000,
-              },
-            );
+    try {
+      const validation = await this.authService.validate_user(
+        body.email,
+        body.password,
+      );
 
-            return {
-              message: 'Login Successful!',
-              accessToken: tokens.accessToken,
-            };
-          })
-          .catch((e: unknown) => {
-            console.log('Login Failed: ', e);
-            throw new InternalServerErrorException('Something went wrong!');
-          });
-      })
-      .catch((e: unknown) => {
-        console.log('Login Failed: ', e);
-        throw new UnauthorizedException('Login Failed!');
+      const tokens = await this.authService.signin_user({
+        email: validation.email,
+        id: validation.id,
       });
+
+      res.cookie(
+        'refresh',
+        JSON.stringify({ token: tokens.refresh.token, id: tokens.refresh.id }),
+        {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'strict',
+          maxAge: TOKEN_CONST.REFRESH_TTL_SECONDS * 1000,
+          signed: true,
+        },
+      );
+
+      return {
+        message: 'Login Successful!',
+        accessToken: tokens.accessToken,
+      };
+    } catch (e: unknown) {
+      console.log('Login Failed: ', e);
+      throw e;
+    }
+  }
+
+  @Post('/sign-out')
+  @HttpCode(HttpStatus.OK)
+  signout_user(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const cookie = req.signedCookies['refresh'];
+
+    if (cookie) {
+      const refresh = JSON.parse(cookie);
+      this.authService.signout_user(refresh.id);
+      res.clearCookie('refresh');
+    }
   }
 }

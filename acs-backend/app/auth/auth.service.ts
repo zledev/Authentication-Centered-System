@@ -76,7 +76,7 @@ export class AuthService {
     throw new NotFoundException('Account does not exists!');
   }
 
-  async login_user(user: {
+  async signin_user(user: {
     email: string;
     id: string;
   }): Promise<{ refresh: { token: string; id: string }; accessToken: string }> {
@@ -118,12 +118,10 @@ export class AuthService {
     }
   }
 
-  async logout_user(userId: string) {
-    await prisma.userToken.delete({
-      where: {
-        userId: userId,
-      },
-    });
+  async signout_user(token_id: string) {
+    const tokenRedis = await this.redis.exists(token_id);
+    if (tokenRedis) await this.redis.del(token_id);
+    await prisma.userToken.delete({ where: { id: token_id } });
   }
 
   async validate_token(
